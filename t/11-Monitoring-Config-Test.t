@@ -9,12 +9,12 @@ my $test_dir = tempdir(CLEANUP => $cleanup);
 my $mgt = Monitoring::Generator::TestConfig->new( 'output_dir' => $test_dir, 'overwrite_dir' => 1 );
 
 if(!defined $mgt->{'binary'} or ! -x $mgt->{'binary'}) {
-   plan( skip_all => 'no nagios(3)/icinga bin found in path, skipping config test' );
+   plan( skip_all => 'no binary found at all, skipping config test' );
 }
 
 
 # which layouts to test
-my @layouts = qw/nagios icinga/;
+my @layouts = qw/nagios icinga shinken/;
 
 ########################################
 
@@ -23,6 +23,7 @@ $configtests = {
     "simple prefix"   => { 'overwrite_dir' => 1, 'prefix' => 'pre_' },
     "small standard"  => { 'overwrite_dir' => 1, 'routercount' =>  1, 'hostcount' =>   1, 'services_per_host' =>  1 },
     "medium standard" => { 'overwrite_dir' => 1, 'routercount' => 30, 'hostcount' => 400, 'services_per_host' => 25 },
+    "no router"       => { 'overwrite_dir' => 1, 'routercount' =>  0, 'hostcount' => 400, 'services_per_host' => 25 },
     "complex config"  => { 'overwrite_dir' => 1,
                            'routercount'               => 5,
                            'hostcount'                 => 50,
@@ -76,6 +77,11 @@ for my $name (keys %{$configtests}) {
         my $mgt = Monitoring::Generator::TestConfig->new( %{$conf} );
         isa_ok($mgt, 'Monitoring::Generator::TestConfig');
         $mgt->create();
+
+        if(! -x $mgt->{'binary'}) {
+            print "skipping further layout test for $layout: $!\n";
+            next;
+        }
 
         my $testcommands = [
             $mgt->{'binary'}.' -v '.$test_dir.'/'.$mgt->{'layout'}.'.cfg',

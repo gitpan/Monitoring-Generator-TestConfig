@@ -12,11 +12,11 @@ use Monitoring::Generator::TestConfig::HostCheckData;
 use Monitoring::Generator::TestConfig::InitScriptData;
 use Monitoring::Generator::TestConfig::P1Data;
 
-our $VERSION = '0.26';
+our $VERSION = '0.27_2';
 
 =head1 NAME
 
-Monitoring::Generator::TestConfig - Perl extension for generating test monitoring configurations (nagios/icinga)
+Monitoring::Generator::TestConfig - generate monitoring configurations (nagios/icinga/shinken)
 
 =head1 SYNOPSIS
 
@@ -133,8 +133,8 @@ sub new {
         croak('no output_dir given');
     }
 
-    if(!defined $self->{'layout'} or ( $self->{'layout'} ne 'nagios' and $self->{'layout'} ne 'icinga')) {
-        croak('valid layouts are: nagios, icinga');
+    if(!defined $self->{'layout'} or ( $self->{'layout'} ne 'nagios' and $self->{'layout'} ne 'icinga' and $self->{'layout'} ne 'shinken')) {
+        croak('valid layouts are: nagios, icinga, shinken');
     }
 
     # strip off last slash
@@ -145,10 +145,16 @@ sub new {
     }
 
     # set some defaults
-    my $user        = getlogin();
-    my @userinfo    = getpwnam($user);
-    my @groupinfo   = getgrgid($userinfo[3]);
-    my $group       = $groupinfo[0];
+    my($user, $group);
+    if($^O eq "MSWin32") {
+        $user           = getlogin();
+        $group          = "nagios";
+    } else {
+        $user           = getlogin();
+        my @userinfo    = getpwnam($user);
+        my @groupinfo   = getgrgid($userinfo[3]);
+        $group          = $groupinfo[0];
+    }
 
     $self->{'user'}  = $user  unless defined $self->{'user'};
     $self->{'group'} = $group unless defined $self->{'group'};
@@ -162,6 +168,8 @@ sub new {
         } elsif($self->{'layout'} eq 'icinga' ) {
             $self->{'binary'} = which('icinga') || undef;
             @possible_bin_locations = qw|/usr/sbin/icinga /usr/bin/icinga /usr/local/bin/icinga|;
+        } elsif($self->{'layout'} eq 'shinken' ) {
+            $self->{'binary'} = which('shinken-arbiter') || '/usr/local/shinken/bin/shinken-arbiter';
         }
 
         # still not defined?
@@ -237,15 +245,26 @@ sub create {
         { file => '/recreate.pl',                   data => $self->_get_recreate_pl()                     },
         { file => '/plugins/test_servicecheck.pl',  data => Monitoring::Generator::TestConfig::ServiceCheckData->get_test_servicecheck() },
         { file => '/plugins/test_hostcheck.pl',     data => Monitoring::Generator::TestConfig::HostCheckData->get_test_hostcheck()       },
-        { file => '/plugins/p1.pl',                 data => Monitoring::Generator::TestConfig::P1Data->get_p1_script()                   },
-        { file => '/init.d/'.$init,                 data => Monitoring::Generator::TestConfig::InitScriptData->get_init_script(
-                                                                        $self->{'output_dir'},
-                                                                        $self->{'binary'},
-                                                                        $self->{'user'},
-                                                                        $self->{'group'},
-                                                                        $self->{'layout'}
-                                                            )},
     ];
+    if ($self->{'layout'} eq 'nagios' or $self->{'layout'} eq 'icinga') {
+        push(@{$exportedFiles}, { file => '/plugins/p1.pl',  data => Monitoring::Generator::TestConfig::P1Data->get_p1_script() });
+        push(@{$exportedFiles}, { file => '/init.d/'.$init,  data => Monitoring::Generator::TestConfig::InitScriptData->get_init_script(
+                            $self->{'output_dir'},
+                            $self->{'binary'},
+                            $self->{'user'},
+                            $self->{'group'},
+                            $self->{'layout'}
+                  )});
+    }
+    if ($self->{'layout'} eq 'shinken') {
+        push(@{$exportedFiles}, { file => '/etc/shinken-specific.cfg',  data => $self->_get_shinken_specific_cfg() });
+        push(@{$exportedFiles}, { file => '/etc/schedulerd.cfg',        data => $self->_get_shinken_schedulerd_cfg() });
+        push(@{$exportedFiles}, { file => '/etc/pollerd.cfg',           data => $self->_get_shinken_pollerd_cfg() });
+        push(@{$exportedFiles}, { file => '/etc/brokerd.cfg',           data => $self->_get_shinken_brokerd_cfg() });
+        push(@{$exportedFiles}, { file => '/etc/reactionnerd.cfg',      data => $self->_get_shinken_reactionnerd_cfg() });
+        push(@{$exportedFiles}, { file => '/init.d/'.$init,             data => 'echo the shinken startup script has not been finished yet'});
+    } 
+
     for my $exportFile (@{$exportedFiles}) {
         open($fh, '>', $self->{'output_dir'}.$exportFile->{'file'}) or die('cannot write '.$self->{'output_dir'}.$exportFile->{'file'}.': '.$!);
         print $fh $exportFile->{'data'};
@@ -295,50 +314,52 @@ sub _get_hosts_cfg {
     my @router;
 
     # router
-    my @routertypes = @{$self->_fisher_yates_shuffle($self->_get_types($self->{'routercount'}, $self->{'router_types'}))};
+    if($self->{'routercount'} > 0) {
+        my @routertypes = @{$self->_fisher_yates_shuffle($self->_get_types($self->{'routercount'}, $self->{'router_types'}))};
 
-    my $nr_length = length($self->{'routercount'});
-    for(my $x = 0; $x < $self->{'routercount'}; $x++) {
-        my $hostgroup = "router";
-        my $nr        = sprintf("%0".$nr_length."d", $x);
-        my $type      = shift @routertypes;
-        push @router, $self->{'prefix'}."test_router_$nr";
+        my $nr_length = length($self->{'routercount'});
+        for(my $x = 0; $x < $self->{'routercount'}; $x++) {
+            my $hostgroup = "router";
+            my $nr        = sprintf("%0".$nr_length."d", $x);
+            my $type      = shift @routertypes;
+            push @router, $self->{'prefix'}."test_router_$nr";
 
-        my $host = {
-            'host_name'     => $self->{'prefix'}."test_router_".$nr,
-            'alias'         => $self->{'prefix'}.$type."_".$nr,
-            'use'           => 'generic-host',
-            'address'       => '127.0.'.$x.'.1',
-            'hostgroups'    => $hostgroup,
-            'check_command' => 'check-host-alive!'.$type,
-            'icon_image'    => '../../docs/images/switch.png',
-        };
-        $host->{'active_checks_enabled'} = '0' if $type eq 'pending';
+            my $host = {
+                'host_name'     => $self->{'prefix'}."test_router_".$nr,
+                'alias'         => $self->{'prefix'}.$type."_".$nr,
+                'use'           => 'generic-host',
+                'address'       => '127.0.'.$x.'.1',
+                'hostgroups'    => $hostgroup,
+                'check_command' => 'check-host-alive!'.$type,
+                'icon_image'    => '../../docs/images/switch.png',
+            };
+            $host->{'active_checks_enabled'} = '0' if $type eq 'pending';
 
-        # first router gets additional infos
-        if($x == 0) {
-            $host->{'notes_url'}      = 'http://search.cpan.org/dist/Monitoring-Generator-TestConfig/README';
-            $host->{'notes'}          = 'just a notes string';
-            $host->{'icon_image_alt'} = 'icon alt string';
-            $host->{'action_url'}     = 'http://search.cpan.org/dist/Monitoring-Generator-TestConfig/';
+            # first router gets additional infos
+            if($x == 0) {
+                $host->{'notes_url'}      = 'http://search.cpan.org/dist/Monitoring-Generator-TestConfig/README';
+                $host->{'notes'}          = 'just a notes string';
+                $host->{'icon_image_alt'} = 'icon alt string';
+                $host->{'action_url'}     = 'http://search.cpan.org/dist/Monitoring-Generator-TestConfig/';
+            }
+            if($x == 1) {
+                $host->{'notes_url'}      = 'http://search.cpan.org/dist/Monitoring-Generator-TestConfig/README';
+                $host->{'action_url'}     = 'http://search.cpan.org/dist/Monitoring-Generator-TestConfig/';
+            }
+            if($x == 2) {
+                $host->{'notes_url'}      = 'http://google.com/?q=$HOSTNAME$';
+                $host->{'action_url'}     = 'http://google.com/?q=$HOSTNAME$';
+            }
+
+            $host = $self->_merge_config_hashes($host, $self->{'host_settings'});
+            $cfg .= $self->_create_object_conf('host', $host);
         }
-        if($x == 1) {
-            $host->{'notes_url'}      = 'http://search.cpan.org/dist/Monitoring-Generator-TestConfig/README';
-            $host->{'action_url'}     = 'http://search.cpan.org/dist/Monitoring-Generator-TestConfig/';
-        }
-        if($x == 2) {
-            $host->{'notes_url'}      = 'http://google.com/?q=$HOSTNAME$';
-            $host->{'action_url'}     = 'http://google.com/?q=$HOSTNAME$';
-        }
-
-        $host = $self->_merge_config_hashes($host, $self->{'host_settings'});
-        $cfg .= $self->_create_object_conf('host', $host);
     }
 
     # hosts
     my @hosttypes = @{$self->_fisher_yates_shuffle($self->_get_types($self->{'hostcount'}, $self->{'host_types'}))};
 
-    $nr_length = length($self->{'hostcount'});
+    my $nr_length = length($self->{'hostcount'});
     for(my $x = 0; $x < $self->{'hostcount'}; $x++) {
         my $hostgroup = "hostgroup_01";
         $hostgroup    = "hostgroup_02" if $x%5 == 1;
@@ -353,7 +374,7 @@ sub _get_hosts_cfg {
             'host_name'     => $self->{'prefix'}."test_host_".$nr,
             'alias'         => $self->{'prefix'}.$type."_".$nr,
             'use'           => 'generic-host',
-            'address'       => '127.0.'.$cur_router.($x + 1),
+            'address'       => '127.0.'.$cur_router.'.'.($x + 1),
             'hostgroups'    => $hostgroup.','.$type,
             'check_command' => 'check-host-alive!'.$type,
         };
@@ -543,11 +564,11 @@ sub _get_commands_cfg {
     my $cfg = <<EOT;
 define command{
     command_name    check-host-alive
-    command_line    \$USER1\$/test_hostcheck.pl --type=\$ARG1\$ --failchance=$self->{'hostfailrate'}% --previous-state=\$HOSTSTATE\$ --state-duration=\$HOSTDURATIONSEC\$
+    command_line    \$USER1\$/test_hostcheck.pl --type=\$ARG1\$ --failchance=$self->{'hostfailrate'}% --previous-state=\$HOSTSTATE\$ --state-duration=\$HOSTDURATIONSEC\$ --hostname \$HOSTNAME\$
 }
 define command{
     command_name    check-host-alive-parent
-    command_line    \$USER1\$/test_hostcheck.pl --type=\$ARG1\$ --failchance=$self->{'hostfailrate'}% --previous-state=\$HOSTSTATE\$ --state-duration=\$HOSTDURATIONSEC\$ --parent-state=\$ARG1\$
+    command_line    \$USER1\$/test_hostcheck.pl --type=\$ARG1\$ --failchance=$self->{'hostfailrate'}% --previous-state=\$HOSTSTATE\$ --state-duration=\$HOSTDURATIONSEC\$ --parent-state=\$ARG2\$ --hostname \$HOSTNAME\$
 }
 define command{
     command_name    notify-host
@@ -559,7 +580,7 @@ define command{
 }
 define command{
     command_name    check_service
-    command_line    \$USER1\$/test_servicecheck.pl --type=\$ARG1\$ --failchance=$self->{'servicefailrate'}% --previous-state=\$SERVICESTATE\$ --state-duration=\$SERVICEDURATIONSEC\$ --total-critical-on-host=\$TOTALHOSTSERVICESCRITICAL\$ --total-warning-on-host=\$TOTALHOSTSERVICESWARNING\$
+    command_line    \$USER1\$/test_servicecheck.pl --type=\$ARG1\$ --failchance=$self->{'servicefailrate'}% --previous-state=\$SERVICESTATE\$ --state-duration=\$SERVICEDURATIONSEC\$ --total-critical-on-host=\$TOTALHOSTSERVICESCRITICAL\$ --total-warning-on-host=\$TOTALHOSTSERVICESWARNING\$ --hostname \$HOSTNAME\$ --servicedesc \$SERVICEDESC\$
 }
 EOT
     return($cfg);
@@ -704,11 +725,145 @@ sub _get_main_cfg {
         'max_debug_file_size'                           => 1000000,
     };
 
+    push(@{$main_cfg->{cfg_file}}, $self->{'output_dir'}.'/etc/shinken-specific.cfg') if $self->{'layout'} eq 'shinken';
     $main_cfg->{'use_large_installation_tweaks'} = 1 if ($self->{'hostcount'} * $self->{'services_per_host'} > 2000);
 
     my $merged     = $self->_merge_config_hashes($main_cfg, $self->{'main_cfg'});
     my $confstring = $self->_config_hash_to_string($merged);
     return($confstring);
+}
+
+########################################
+sub _get_shinken_specific_cfg {
+    my $self = shift;
+
+    my $max_workers = ($self->{'hostcount'} * $self->{'services_per_host'}) / 256 / 10; # 100000 services -> 39
+    $max_workers = ($max_workers < 10) ? 10 : abs($max_workers);
+    my $cfg = "
+define scheduler{
+       scheduler_name           scheduler-All
+       address                  localhost
+       port                     7768
+       spare                    0
+       realm                    All
+       weight                   1
+}
+define reactionner{
+       reactionner_name         reactionner-All
+       address                  localhost
+       port                     7769
+       spare                    0
+       realm                    All
+       manage_sub_realms        0
+}
+define poller{
+       poller_name              poller-All
+       address                  localhost
+       port                     7771
+       realm                    All
+       manage_sub_realms        0
+       min_workers              4
+       max_workers              $max_workers
+       processes_by_worker      256
+       polling_interval         1
+}
+define broker{
+       broker_name              broker-All
+       address                  localhost
+       port                     7772
+       spare                    0
+       realm                    All
+       manage_sub_realms        0
+       modules                  Service-Perfdata, Host-Perfdata
+}
+define module{
+       module_name              Service-Perfdata
+       module_type              service_perfdata
+       path                     $self->{'output_dir'}/var/service-perfdata
+}
+define module{
+       module_name              Host-Perfdata
+       module_type              host_perfdata
+       path                     $self->{'output_dir'}/var/host-perfdata
+}
+define realm{
+       realm_name               All
+       default                  1
+}
+";
+    return($cfg);
+}
+
+########################################
+sub _get_shinken_schedulerd_cfg {
+    my $self    = shift;
+
+    my $cfg = "[daemon]
+workdir=$self->{'output_dir'}/var
+pidfile=%(workdir)s/schedulerd.pid
+port=7768
+host=0.0.0.0
+user=$self->{'user'}
+group=$self->{'group'}
+idontcareaboutsecurity=0
+";
+    return($cfg);
+}
+
+########################################
+sub _get_shinken_pollerd_cfg {
+    my $self    = shift;
+
+    my $cfg = "[daemon]
+workdir=$self->{'output_dir'}/var
+pidfile=%(workdir)s/pollerd.pid
+interval_poll=5
+maxfd=1024
+port=7771
+host=0.0.0.0
+user=$self->{'user'}
+group=$self->{'group'}
+idontcareaboutsecurity=no
+";
+    return($cfg);
+}
+
+########################################
+sub _get_shinken_brokerd_cfg {
+    my $self    = shift;
+
+    ($self->{'shinken_dir'} = $self->{'binary'}) =~ s/\/[^\/]*?\/[^\/]*?$//mxg;
+    my $cfg = "[daemon]
+workdir=$self->{'output_dir'}/var
+pidfile=%(workdir)s/brokerd.pid
+interval_poll=5
+maxfd=1024
+port=7772
+host=0.0.0.0
+user=$self->{'user'}
+group=$self->{'group'}
+idontcareaboutsecurity=no
+modulespath=$self->{'shinken_dir'}/modules
+";
+    return($cfg);
+}
+
+########################################
+sub _get_shinken_reactionnerd_cfg {
+    my $self    = shift;
+
+    my $cfg = "[daemon]
+workdir=$self->{'output_dir'}/var
+pidfile=%(workdir)s/reactionnerd.pid
+interval_poll=5
+maxfd=1024
+port=7769
+host=0.0.0.0
+user=$self->{'user'}
+group=$self->{'group'}
+idontcareaboutsecurity=no
+";
+    return($cfg);
 }
 
 ########################################

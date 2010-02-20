@@ -1,7 +1,7 @@
 --- #YAML:1.0
 name:               Monitoring-Generator-TestConfig
-version:            0.26
-abstract:           Perl extension for generating test monitoring configurations (nagios/icinga)
+version:            0.27_2
+abstract:           generate monitoring configurations (nagios/icinga/shinken)
 author:
     - Sven Nierlein <nierlein@cpan.org>
 license:            perl
@@ -12,11 +12,12 @@ build_requires:
     ExtUtils::MakeMaker:  0
 requires:
     File::Which:  0
+    Test::More:   0.87
 no_index:
     directory:
         - t
         - inc
-generated_by:       ExtUtils::MakeMaker version 6.54
+generated_by:       ExtUtils::MakeMaker version 6.55_02
 meta-spec:
     url:      http://module-build.sourceforge.net/META-spec-v1.4.html
     version:  1.4
