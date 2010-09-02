@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               Monitoring-Generator-TestConfig
-version:            0.30
+version:            0.32
 abstract:           generate monitoring configurations (nagios/icinga/shinken)
 author:
     - Sven Nierlein <nierlein@cpan.org>
