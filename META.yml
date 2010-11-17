@@ -1,23 +1,30 @@
---- #YAML:1.0
-name:               Monitoring-Generator-TestConfig
-version:            0.32
-abstract:           generate monitoring configurations (nagios/icinga/shinken)
+---
+abstract: 'generate monitoring configurations (nagios/icinga/shinken)'
 author:
-    - Sven Nierlein <nierlein@cpan.org>
-license:            perl
-distribution_type:  module
-configure_requires:
-    ExtUtils::MakeMaker:  0
+  - 'Sven Nierlein, <nierlein@cpan.org>'
 build_requires:
-    ExtUtils::MakeMaker:  0
-requires:
-    File::Which:  0
-    Test::More:   0.87
-no_index:
-    directory:
-        - t
-        - inc
-generated_by:       ExtUtils::MakeMaker version 6.55_02
+  ExtUtils::MakeMaker: 6.42
+  Test::More: 0.87
+configure_requires:
+  ExtUtils::MakeMaker: 6.42
+distribution_type: module
+generated_by: 'Module::Install version 1.00'
+license: gpl3
 meta-spec:
-    url:      http://module-build.sourceforge.net/META-spec-v1.4.html
-    version:  1.4
+  url: http://module-build.sourceforge.net/META-spec-v1.4.html
+  version: 1.4
+name: Monitoring-Generator-TestConfig
+no_index:
+  directory:
+    - examples
+    - inc
+    - t
+requires:
+  File::Which: 0
+  perl: 5.005
+resources:
+  bugtracker: https://github.com/sni/Monitoring-Generator-TestConfig/issues
+  homepage: https://github.com/sni/Monitoring-Generator-TestConfig
+  license: http://opensource.org/licenses/gpl-3.0.html
+  repository: https://github.com/sni/Monitoring-Generator-TestConfig
+version: 0.34
