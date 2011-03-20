@@ -16,7 +16,6 @@ meta-spec:
 name: Monitoring-Generator-TestConfig
 no_index:
   directory:
-    - examples
     - inc
     - t
 requires:
@@ -27,4 +26,4 @@ resources:
   homepage: https://github.com/sni/Monitoring-Generator-TestConfig
   license: http://opensource.org/licenses/gpl-3.0.html
   repository: https://github.com/sni/Monitoring-Generator-TestConfig
-version: 0.34
+version: 0.36
