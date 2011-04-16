@@ -14,7 +14,7 @@ use Monitoring::Generator::TestConfig::P1Data;
 use Monitoring::Generator::TestConfig::Modules::Shinken;
 use Monitoring::Generator::TestConfig::ShinkenInitScriptData;
 
-our $VERSION = '0.36';
+our $VERSION = '0.38';
 
 =head1 NAME
 
@@ -219,7 +219,7 @@ sub new {
     }
 
     if(!defined $self->{'binary'}) {
-        carp('found no monitoring binary in path and none defined by the \'binary\' option, using fallback /usr/bin/nagios');
+        #carp('found no monitoring binary in path and none defined by the \'binary\' option, using fallback /usr/bin/nagios');
         $self->{'binary'} = '/usr/bin/nagios';
     }
 

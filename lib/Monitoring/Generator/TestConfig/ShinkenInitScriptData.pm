@@ -101,7 +101,7 @@ fi
 [ -f /etc/default/rcS ] && . /etc/default/rcS
 
 # Define LSB log_* functions.
-. /lib/lsb/init-functions
+[ -f /lib/lsb/init-functions ] && . /lib/lsb/init-functions
 
 #
 # return the pid for a submodule
@@ -181,20 +181,20 @@ do_start() {
         printf "%-15s: " $mod
         DEBUGCMD=""
         [ $DEBUG = 1 ] && DEBUGCMD="--debug $VAR/${mod}-debug.log"
-        `do_status $mod  > /dev/null 2>&1`
+        do_status $mod  > /dev/null 2>&1
         if [ $? = 0 ]; then
             pid=`getmodpid $mod`;
             echo "ALREADY RUNNING (pid $pid)"
         else
             if [ $mod != "arbiter" ]; then
-                output=`$BIN/shinken-${mod} -d -c $ETC/${mod}d.cfg $DEBUGCMD 2>&1`
+                output=`cd $BIN && ./shinken-${mod} -d -c $ETC/${mod}d.cfg $DEBUGCMD 2>&1`
             else
-                output=`$BIN/shinken-${mod} -d -c $ETC/../shinken.cfg -c $ETC/shinken-specific.cfg $DEBUGCMD 2>&1`
+                output=`cd $BIN && ./shinken-${mod} -d -c $ETC/../shinken.cfg -c $ETC/shinken-specific.cfg $DEBUGCMD 2>&1`
             fi
             if [ $? = 0 ]; then
                 echo "OK"
             else
-                output=`echo $output | tail -1` # only show one line of error output...
+                output=`echo "$output" | tail -2` # only show last 2 lines of error output...
                 echo "FAILED $output" 
             fi
         fi
@@ -205,7 +205,7 @@ do_start() {
 # do the config check
 #
 do_check() {
-    $BIN/shinken-arbiter -v -c $ETC/../shinken.cfg -c $ETC/shinken-specific.cfg $DEBUGCMD 2>&1
+    cd $BIN && ./shinken-arbiter -v -c $ETC/../shinken.cfg -c $ETC/shinken-specific.cfg $DEBUGCMD 2>&1
     return $?
 }
 
@@ -217,16 +217,18 @@ case "$CMD" in
     [ "$VERBOSE" != no ] && log_daemon_msg "Starting $NAME"
     do_start
     do_status > /dev/null 2>&1
-    case "$?" in
+    rc=$?
+    case $rc in
         0) [ "$VERBOSE" != no ] && log_end_msg 0 ;;
-        1) [ "$VERBOSE" != no ] && log_end_msg 1 ;;
+        1) [ "$VERBOSE" != no ] && log_end_msg 0 ;;
     esac
+    exit $rc
     ;;
   stop)
     [ "$VERBOSE" != no ] && log_daemon_msg "Stopping $NAME"
     do_stop
     do_status > /dev/null 2>&1
-    case "$?" in
+    case $? in
         0) [ "$VERBOSE" != no ] && log_end_msg 1 ;;
         1) [ "$VERBOSE" != no ] && log_end_msg 0 ;;
     esac
